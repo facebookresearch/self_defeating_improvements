@@ -1,0 +1,624 @@
+diff -ruN frustum-pointnets/dataset/README.md ../pseudo_lidar_exp/frustum-pointnets/dataset/README.md
+--- frustum-pointnets/dataset/README.md	2021-03-15 21:18:08.357576764 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/dataset/README.md	1969-12-31 19:00:00.000000000 -0500
+@@ -1,14 +0,0 @@
+-Download KITTI 3D object detection data and organize the folders as follows:
+-
+-        dataset/KITTI/object/
+-
+-            training/
+-                calib/
+-                image_2/
+-                label_2/ 
+-                velodyne/
+-
+-            testing/
+-                calib/
+-                image_2/
+-                velodyne/ 
+diff -ruN frustum-pointnets/kitti/kitti_object.py ../pseudo_lidar_exp/frustum-pointnets/kitti/kitti_object.py
+--- frustum-pointnets/kitti/kitti_object.py	2021-03-15 21:18:08.389577834 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/kitti/kitti_object.py	2021-03-15 14:44:57.803624550 -0400
+@@ -24,7 +24,7 @@
+ class kitti_object(object):
+     '''Load and parse object data into a usable format.'''
+     
+-    def __init__(self, root_dir, split='training'):
++    def __init__(self, root_dir, split='training', lidar_mode=0):
+         '''root_dir contains training and testing folders'''
+         self.root_dir = root_dir
+         self.split = split
+@@ -38,10 +38,25 @@
+             print('Unknown split: %s' % (split))
+             exit(-1)
+ 
++        if lidar_mode == 0:
++            velodyne_name = 'velodyne'
++        elif lidar_mode == 1:
++            velodyne_name = 'velodyne_close'
++        elif lidar_mode == 2:
++            velodyne_name = 'pseudo-lidar_velodyne'
++        elif lidar_mode == 3:
++            velodyne_name = 'pseudo-lidar_velodyne_close'
++        elif lidar_mode == 4:
++            velodyne_name = 'pseudo-lidar_velodyne_dl'
++        elif lidar_mode == 5:
++            velodyne_name = 'pseudo-lidar_velodyne_dl_close'
++            
++        label_name = 'label_2' if lidar_mode in [0, 2, 4] else 'label_2_close'
++            
+         self.image_dir = os.path.join(self.split_dir, 'image_2')
+         self.calib_dir = os.path.join(self.split_dir, 'calib')
+-        self.lidar_dir = os.path.join(self.split_dir, 'velodyne')
+-        self.label_dir = os.path.join(self.split_dir, 'label_2')
++        self.lidar_dir = os.path.join(self.split_dir, velodyne_name)
++        self.label_dir = os.path.join(self.split_dir, label_name)
+ 
+     def __len__(self):
+         return self.num_samples
+Binary files frustum-pointnets/kitti/kitti_object.pyc and ../pseudo_lidar_exp/frustum-pointnets/kitti/kitti_object.pyc differ
+Binary files frustum-pointnets/kitti/kitti_util.pyc and ../pseudo_lidar_exp/frustum-pointnets/kitti/kitti_util.pyc differ
+diff -ruN frustum-pointnets/kitti/prepare_data.py ../pseudo_lidar_exp/frustum-pointnets/kitti/prepare_data.py
+--- frustum-pointnets/kitti/prepare_data.py	2021-03-15 21:18:08.393577967 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/kitti/prepare_data.py	2021-03-15 14:44:57.815624950 -0400
+@@ -15,7 +15,7 @@
+ sys.path.append(BASE_DIR)
+ sys.path.append(os.path.join(ROOT_DIR, 'mayavi'))
+ import kitti_util as utils
+-import cPickle as pickle
++import pickle #cPickle as pickle
+ from kitti_object import *
+ import argparse
+ 
+@@ -44,7 +44,7 @@
+ def demo():
+     import mayavi.mlab as mlab
+     from viz_util import draw_lidar, draw_lidar_simple, draw_gt_boxes3d
+-    dataset = kitti_object(os.path.join(ROOT_DIR, 'dataset/KITTI/object'))
++    dataset = kitti_object(os.path.join(ROOT_DIR, '../Kitti/object'))
+     data_idx = 0
+ 
+     # Load data from dataset
+@@ -145,7 +145,7 @@
+     return np.array([cx2-w2/2.0, cy2-h2/2.0, cx2+w2/2.0, cy2+h2/2.0])
+  
+ def extract_frustum_data(idx_filename, split, output_filename, viz=False,
+-                       perturb_box2d=False, augmentX=1, type_whitelist=['Car']):
++                       perturb_box2d=False, augmentX=1, type_whitelist=['Car'], lidar_mode=0):
+     ''' Extract point clouds and corresponding annotations in frustums
+         defined generated from 2D bounding boxes
+         Lidar points and 3d boxes are in *rect camera* coord system
+@@ -163,7 +163,7 @@
+     Output:
+         None (will write a .pickle file to the disk)
+     '''
+-    dataset = kitti_object(os.path.join(ROOT_DIR,'dataset/KITTI/object'), split)
++    dataset = kitti_object(os.path.join(ROOT_DIR,'../Kitti/object'), split, lidar_mode)
+     data_idx_list = [int(line.rstrip()) for line in open(idx_filename)]
+ 
+     id_list = [] # int number
+@@ -247,7 +247,6 @@
+                 # collect statistics
+                 pos_cnt += np.sum(label)
+                 all_cnt += pc_in_box_fov.shape[0]
+-        
+     print('Average pos ratio: %f' % (pos_cnt/float(all_cnt)))
+     print('Average npoints: %f' % (float(all_cnt)/len(id_list)))
+     
+@@ -277,9 +276,9 @@
+                 colormap='gnuplot', scale_factor=1, figure=fig)
+             raw_input()
+ 
+-def get_box3d_dim_statistics(idx_filename):
++def get_box3d_dim_statistics(idx_filename, lidar_mode):
+     ''' Collect and dump 3D bounding box statistics '''
+-    dataset = kitti_object(os.path.join(ROOT_DIR,'dataset/KITTI/object'))
++    dataset = kitti_object(os.path.join(ROOT_DIR,'../Kitti/object'), lidar_mode=lidar_mode)
+     dimension_list = []
+     type_list = []
+     ry_list = []
+@@ -320,7 +319,8 @@
+                                        viz=False,
+                                        type_whitelist=['Car'],
+                                        img_height_threshold=25,
+-                                       lidar_point_threshold=5):
++                                       lidar_point_threshold=5,
++                                      lidar_mode=0):
+     ''' Extract point clouds in frustums extruded from 2D detection boxes.
+         Update: Lidar points and 3d boxes are in *rect camera* coord system
+             (as that in 3d box label files)
+@@ -336,7 +336,7 @@
+     Output:
+         None (will write a .pickle file to the disk)
+     '''
+-    dataset = kitti_object(os.path.join(ROOT_DIR, 'dataset/KITTI/object'), split)
++    dataset = kitti_object(os.path.join(ROOT_DIR, '../Kitti/object'), split, lidar_mode)
+     det_id_list, det_type_list, det_box2d_list, det_prob_list = \
+         read_det_file(det_filename)
+     cache_id = -1
+@@ -421,7 +421,7 @@
+                 colormap='gnuplot', scale_factor=1, figure=fig)
+             raw_input()
+ 
+-def write_2d_rgb_detection(det_filename, split, result_dir):
++def write_2d_rgb_detection(det_filename, split, result_dir, lidar_mode):
+     ''' Write 2D detection results for KITTI evaluation.
+         Convert from Wei's format to KITTI format. 
+         
+@@ -436,7 +436,7 @@
+     Usage:
+         write_2d_rgb_detection("val_det.txt", "training", "results")
+     '''
+-    dataset = kitti_object(os.path.join(ROOT_DIR, 'dataset/KITTI/object'), split)
++    dataset = kitti_object(os.path.join(ROOT_DIR, '../Kitti/object'), split, lidar_mode)
+     det_id_list, det_type_list, det_box2d_list, det_prob_list = \
+         read_det_file(det_filename)
+     # map from idx to list of strings, each string is a line without \n
+@@ -468,6 +468,8 @@
+     parser.add_argument('--gen_val', action='store_true', help='Generate val split frustum data with GT 2D boxes')
+     parser.add_argument('--gen_val_rgb_detection', action='store_true', help='Generate val split frustum data with RGB detection 2D boxes')
+     parser.add_argument('--car_only', action='store_true', help='Only generate cars; otherwise cars, peds and cycs')
++    parser.add_argument('--pedestrian_only', action='store_true', help='Only generate pedestrian; otherwise cars, peds and cycs')
++    parser.add_argument('--lidar_mode', type=int, default=0, help='0: lidar; 1: pseudo_lidar, 2: pseudo_lidar_dl, 3: pseudo_lidar_new, 4: pseudo_lidar_dl_new')
+     args = parser.parse_args()
+ 
+     if args.demo:
+@@ -477,9 +479,14 @@
+     if args.car_only:
+         type_whitelist = ['Car']
+         output_prefix = 'frustum_caronly_'
++    elif args.pedestrian_only:
++        type_whitelist = ['Pedestrian']
++        output_prefix = 'frustum_pedonly_'
+     else:
+         type_whitelist = ['Car', 'Pedestrian', 'Cyclist']
+         output_prefix = 'frustum_carpedcyc_'
++        
++    output_prefix = output_prefix + f"lidar-mode_{args.lidar_mode}_"
+ 
+     if args.gen_train:
+         extract_frustum_data(\
+@@ -487,7 +494,7 @@
+             'training',
+             os.path.join(BASE_DIR, output_prefix+'train.pickle'), 
+             viz=False, perturb_box2d=True, augmentX=5,
+-            type_whitelist=type_whitelist)
++            type_whitelist=type_whitelist, lidar_mode=args.lidar_mode)
+ 
+     if args.gen_val:
+         extract_frustum_data(\
+@@ -495,7 +502,7 @@
+             'training',
+             os.path.join(BASE_DIR, output_prefix+'val.pickle'),
+             viz=False, perturb_box2d=False, augmentX=1,
+-            type_whitelist=type_whitelist)
++            type_whitelist=type_whitelist, lidar_mode=args.lidar_mode)
+ 
+     if args.gen_val_rgb_detection:
+         extract_frustum_data_rgb_detection(\
+@@ -503,4 +510,4 @@
+             'training',
+             os.path.join(BASE_DIR, output_prefix+'val_rgb_detection.pickle'),
+             viz=False,
+-            type_whitelist=type_whitelist) 
++            type_whitelist=type_whitelist, lidar_mode=args.lidar_mode) 
+diff -ruN frustum-pointnets/models/model_util.py ../pseudo_lidar_exp/frustum-pointnets/models/model_util.py
+--- frustum-pointnets/models/model_util.py	2021-03-15 21:18:08.533582649 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/models/model_util.py	2021-03-15 14:44:57.971630153 -0400
+@@ -1,5 +1,7 @@
+ import numpy as np
+-import tensorflow as tf
++#import tensorflow as tf
++import tensorflow.compat.v1 as tf
++tf.disable_v2_behavior()
+ import os
+ import sys
+ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+@@ -172,6 +174,9 @@
+     Output:
+         TF placeholders for inputs and ground truths
+     '''
++    #pointclouds_pl = tf.placeholder(tf.float32,
++    #    shape=(batch_size, num_point, 4))
++    #one_hot_vec_pl = tf.placeholder(tf.float32, shape=(batch_size, 3))
+     pointclouds_pl = tf.placeholder(tf.float32,
+         shape=(batch_size, num_point, 4))
+     one_hot_vec_pl = tf.placeholder(tf.float32, shape=(batch_size, 3))
+diff -ruN frustum-pointnets/models/pointnet_util.py ../pseudo_lidar_exp/frustum-pointnets/models/pointnet_util.py
+--- frustum-pointnets/models/pointnet_util.py	2021-03-15 21:18:08.537582783 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/models/pointnet_util.py	2021-03-15 14:44:57.975630287 -0400
+@@ -14,7 +14,9 @@
+ from tf_sampling import farthest_point_sample, gather_point
+ from tf_grouping import query_ball_point, group_point, knn_point
+ from tf_interpolate import three_nn, three_interpolate
+-import tensorflow as tf
++#import tensorflow as tf
++import tensorflow.compat.v1 as tf
++tf.disable_v2_behavior()
+ import numpy as np
+ import tf_util
+ 
+diff -ruN frustum-pointnets/models/tf_ops/3d_interpolation/tf_interpolate_compile.sh ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/3d_interpolation/tf_interpolate_compile.sh
+--- frustum-pointnets/models/tf_ops/3d_interpolation/tf_interpolate_compile.sh	2021-03-15 21:18:08.553583318 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/3d_interpolation/tf_interpolate_compile.sh	2021-03-15 14:44:57.991630820 -0400
+@@ -1,5 +1,7 @@
+ # TF1.2
+ #g++ -std=c++11 tf_interpolate.cpp -o tf_interpolate_so.so -shared -fPIC -I /usr/local/lib/python2.7/dist-packages/tensorflow/include -I /usr/local/cuda-8.0/include -lcudart -L /usr/local/cuda-8.0/lib64/ -O2 -D_GLIBCXX_USE_CXX11_ABI=0
+ 
++CUDA_ROOT=/private/home/ruihan/local/cuda-10.0
++TF_ROOT=/private/home/ruihan/anaconda3/envs/fpn2/lib/python3.8/site-packages/tensorflow
+ # TF1.4
+-g++ -std=c++11 tf_interpolate.cpp -o tf_interpolate_so.so -shared -fPIC -I /usr/local/lib/python2.7/dist-packages/tensorflow/include -I /usr/local/cuda-8.0/include -I /usr/local/lib/python2.7/dist-packages/tensorflow/include/external/nsync/public -lcudart -L /usr/local/cuda-8.0/lib64/ -L/usr/local/lib/python2.7/dist-packages/tensorflow -ltensorflow_framework -O2 -D_GLIBCXX_USE_CXX11_ABI=0
++g++ -std=c++11 tf_interpolate.cpp -o tf_interpolate_so.so -shared -fPIC -I $TF_ROOT/include -I $CUDA_ROOT/include -I $TF_ROOT/include/external/nsync/public -lcudart -L $CUDA_ROOT/lib64/ -L$TF_ROOT -ltensorflow_framework -O2 #-D_GLIBCXX_USE_CXX11_ABI=0
+Binary files frustum-pointnets/models/tf_ops/3d_interpolation/tf_interpolate_so.so and ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/3d_interpolation/tf_interpolate_so.so differ
+diff -ruN frustum-pointnets/models/tf_ops/grouping/tf_grouping_compile.sh ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/grouping/tf_grouping_compile.sh
+--- frustum-pointnets/models/tf_ops/grouping/tf_grouping_compile.sh	2021-03-15 21:18:08.597584789 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/grouping/tf_grouping_compile.sh	2021-03-15 14:44:58.039632422 -0400
+@@ -1,8 +1,10 @@
+ #/bin/bash
+-/usr/local/cuda-8.0/bin/nvcc tf_grouping_g.cu -o tf_grouping_g.cu.o -c -O2 -DGOOGLE_CUDA=1 -x cu -Xcompiler -fPIC
++CUDA_ROOT=/private/home/ruihan/local/cuda-10.0
++TF_ROOT=/private/home/ruihan/anaconda3/envs/fpn2/lib/python3.8/site-packages/tensorflow
++$CUDA_ROOT/bin/nvcc tf_grouping_g.cu -o tf_grouping_g.cu.o -c -O2 -DGOOGLE_CUDA=1 -x cu -Xcompiler -fPIC
+ 
+ # TF1.2
+ #g++ -std=c++11 tf_grouping.cpp tf_grouping_g.cu.o -o tf_grouping_so.so -shared -fPIC -I /usr/local/lib/python2.7/dist-packages/tensorflow/include -I /usr/local/cuda-8.0/include -lcudart -L /usr/local/cuda-8.0/lib64/ -O2 -D_GLIBCXX_USE_CXX11_ABI=0
+ 
+ # TF1.4
+-g++ -std=c++11 tf_grouping.cpp tf_grouping_g.cu.o -o tf_grouping_so.so -shared -fPIC -I /usr/local/lib/python2.7/dist-packages/tensorflow/include -I /usr/local/cuda-8.0/include -I /usr/local/lib/python2.7/dist-packages/tensorflow/include/external/nsync/public -lcudart -L /usr/local/cuda-8.0/lib64/ -L/usr/local/lib/python2.7/dist-packages/tensorflow -ltensorflow_framework -O2 -D_GLIBCXX_USE_CXX11_ABI=0
++g++ -std=c++11 tf_grouping.cpp tf_grouping_g.cu.o -o tf_grouping_so.so -shared -fPIC -I $TF_ROOT/include -I $CUDA_ROOT/include -I $TF_ROOT/include/external/nsync/public -lcudart -L $CUDA_ROOT/lib64/ -L$TF_ROOT -ltensorflow_framework -O2 #-D_GLIBCXX_USE_CXX11_ABI=0
+Binary files frustum-pointnets/models/tf_ops/grouping/tf_grouping_g.cu.o and ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/grouping/tf_grouping_g.cu.o differ
+Binary files frustum-pointnets/models/tf_ops/grouping/tf_grouping_so.so and ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/grouping/tf_grouping_so.so differ
+diff -ruN frustum-pointnets/models/tf_ops/sampling/tf_sampling_compile.sh ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/sampling/tf_sampling_compile.sh
+--- frustum-pointnets/models/tf_ops/sampling/tf_sampling_compile.sh	2021-03-15 21:18:10.753656888 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/sampling/tf_sampling_compile.sh	2021-03-15 14:44:58.087634022 -0400
+@@ -1,8 +1,23 @@
+-#/bin/bash
+-/usr/local/cuda-8.0/bin/nvcc tf_sampling_g.cu -o tf_sampling_g.cu.o -c -O2 -DGOOGLE_CUDA=1 -x cu -Xcompiler -fPIC
++##/bin/bash
++##/usr/local/cuda-8.0/bin/nvcc tf_sampling_g.cu -o tf_sampling_g.cu.o -c -O2 -DGOOGLE_CUDA=1 -x cu -Xcompiler -fPIC
++#/private/home/ruihan/local/cuda-10.0/bin/nvcc tf_sampling_g.cu -o tf_sampling_g.cu.o -c -O2 -DGOOGLE_CUDA=1 -x cu -Xcompiler -fPIC
++#
++## TF1.2
++##g++ -std=c++11 tf_sampling.cpp tf_sampling_g.cu.o -o tf_sampling_so.so -shared -fPIC -I /usr/local/lib/python2.7/dist-packages/tensorflow/include -I /usr/local/cuda-8.0/include -lcudart -L /usr/local/cuda-8.0/lib64/ -O2 -D_GLIBCXX_USE_CXX11_ABI=0
++#
++## TF1.4
++##/private/home/ruihan/anaconda3/envs/fpn/bin/python
++#TF_INC=$(python -c 'import tensorflow as tf; print(tf.sysconfig.get_include())')
++#TF_LIB=$(python -c 'import tensorflow as tf; print(tf.sysconfig.get_lib())')
++#
++#echo $TF_LIB
++#
++#g++ -std=c++11 tf_sampling.cpp tf_sampling_g.cu.o -o tf_sampling_so.so -shared -fPIC -I /private/home/ruihan/anaconda3/envs/fpn/lib/python3.7/site-packages/tensorflow/include -I /private/home/ruihan/local/cuda-10.0/include -I /private/home/ruihan/anaconda3/envs/fpn/lib/python3.7/site-packages/tensorflow/include/external/nsync/public -lcudart -L /private/home/ruihan/local/cuda-10.0/lib64/ -L/private/home/ruihan/anaconda3/envs/fpn/lib/python3.7/site-packages/tensorflow -ltensorflow_framework -O2 -I$TF_INC/external/nsync/public -L$TF_LIB -ltensorflow_framework #-D_GLIBCXX_USE_CXX11_ABI=0
+ 
+-# TF1.2
+-#g++ -std=c++11 tf_sampling.cpp tf_sampling_g.cu.o -o tf_sampling_so.so -shared -fPIC -I /usr/local/lib/python2.7/dist-packages/tensorflow/include -I /usr/local/cuda-8.0/include -lcudart -L /usr/local/cuda-8.0/lib64/ -O2 -D_GLIBCXX_USE_CXX11_ABI=0
+ 
+-# TF1.4
+-g++ -std=c++11 tf_sampling.cpp tf_sampling_g.cu.o -o tf_sampling_so.so -shared -fPIC -I /usr/local/lib/python2.7/dist-packages/tensorflow/include -I /usr/local/cuda-8.0/include -I /usr/local/lib/python2.7/dist-packages/tensorflow/include/external/nsync/public -lcudart -L /usr/local/cuda-8.0/lib64/ -L/usr/local/lib/python2.7/dist-packages/tensorflow -ltensorflow_framework -O2 -D_GLIBCXX_USE_CXX11_ABI=0
++#/bin/bash
++CUDA_ROOT=/private/home/ruihan/local/cuda-10.0
++TF_ROOT=/private/home/ruihan/anaconda3/envs/fpn2/lib/python3.8/site-packages/tensorflow
++$CUDA_ROOT/bin/nvcc -std=c++11 -c -o tf_sampling_g.cu.o tf_sampling_g.cu -O2 -DGOOGLE_CUDA=1 -x cu -Xcompiler -fPIC
++#TF 1.8
++g++ -std=c++11 tf_sampling.cpp tf_sampling_g.cu.o -o tf_sampling_so.so -shared -fPIC -I ${TF_ROOT}/include -I ${CUDA_ROOT}/include -I ${TF_ROOT}/include/external/nsync/public -lcudart -L ${CUDA_ROOT}/lib64/ -L ${TF_ROOT} -ltensorflow_framework -O2 #-D_GLIBCXX_USE_CXX11_ABI=0
+\ No newline at end of file
+Binary files frustum-pointnets/models/tf_ops/sampling/tf_sampling_g.cu.o and ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/sampling/tf_sampling_g.cu.o differ
+Binary files frustum-pointnets/models/tf_ops/sampling/tf_sampling_so.so and ../pseudo_lidar_exp/frustum-pointnets/models/tf_ops/sampling/tf_sampling_so.so differ
+diff -ruN frustum-pointnets/models/tf_util.py ../pseudo_lidar_exp/frustum-pointnets/models/tf_util.py
+--- frustum-pointnets/models/tf_util.py	2021-03-15 21:18:10.757657022 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/models/tf_util.py	2021-03-15 14:44:58.103634556 -0400
+@@ -18,7 +18,8 @@
+   """
+   with tf.device("/cpu:0"):
+     dtype = tf.float16 if use_fp16 else tf.float32
+-    var = tf.get_variable(name, shape, initializer=initializer, dtype=dtype)
++    #var = tf.get_variable(name, shape, initializer=initializer, dtype=dtype)
++    var = tf.compat.v1.get_variable(name, shape, initializer=initializer, dtype=dtype)
+   return var
+ 
+ def _variable_with_weight_decay(name, shape, stddev, wd, use_xavier=True):
+@@ -39,7 +40,8 @@
+     Variable Tensor
+   """
+   if use_xavier:
+-    initializer = tf.contrib.layers.xavier_initializer()
++    #initializer = tf.contrib.layers.xavier_initializer()
++    initializer = tf.initializers.glorot_uniform()
+   else:
+     initializer = tf.truncated_normal_initializer(stddev=stddev)
+   var = _variable_on_cpu(name, shape, initializer)
+@@ -84,7 +86,7 @@
+   Returns:
+     Variable tensor
+   """
+-  with tf.variable_scope(scope) as sc:
++  with tf.compat.v1.variable_scope(scope) as sc:
+     assert(data_format=='NHWC' or data_format=='NCHW')
+     if data_format == 'NHWC':
+       num_in_channels = inputs.get_shape()[-1].value
+@@ -152,7 +154,7 @@
+   Returns:
+     Variable tensor
+   """
+-  with tf.variable_scope(scope) as sc:
++  with tf.compat.v1.variable_scope(scope) as sc:
+       kernel_h, kernel_w = kernel_size
+       assert(data_format=='NHWC' or data_format=='NCHW')
+       if data_format == 'NHWC':
+@@ -343,7 +345,7 @@
+   Returns:
+     Variable tensor of size B x num_outputs.
+   """
+-  with tf.variable_scope(scope) as sc:
++  with tf.compat.v1.variable_scope(scope) as sc:
+     num_input_units = inputs.get_shape()[-1].value
+     weights = _variable_with_weight_decay('weights',
+                                           shape=[num_input_units, num_outputs],
+@@ -378,7 +380,7 @@
+   Returns:
+     Variable tensor
+   """
+-  with tf.variable_scope(scope) as sc:
++  with tf.compat.v1.variable_scope(scope) as sc:
+     kernel_h, kernel_w = kernel_size
+     stride_h, stride_w = stride
+     outputs = tf.nn.max_pool(inputs,
+@@ -524,11 +526,16 @@
+       normed:        batch-normalized maps
+   """
+   bn_decay = bn_decay if bn_decay is not None else 0.9
+-  return tf.contrib.layers.batch_norm(inputs, 
+-                                      center=True, scale=True,
+-                                      is_training=is_training, decay=bn_decay,updates_collections=None,
+-                                      scope=scope,
+-                                      data_format=data_format)
++  return tf.keras.layers.BatchNormalization(name="BatchNorm",
++    scale=True,
++    center=True,
++    trainable=True,)(inputs)
++    
++  #return tf.contrib.layers.batch_norm(inputs, 
++  #                                    center=True, scale=True,
++  #                                    is_training=is_training, decay=bn_decay,updates_collections=None,
++  #                                    scope=scope,
++  #                                    data_format=data_format)
+ 
+ 
+ def batch_norm_for_fc(inputs, is_training, bn_decay, scope):
+@@ -608,7 +615,7 @@
+   Returns:
+     tensor variable
+   """
+-  with tf.variable_scope(scope) as sc:
++  with tf.compat.v1.variable_scope(scope) as sc:
+     outputs = tf.cond(is_training,
+                       lambda: tf.nn.dropout(inputs, keep_prob, noise_shape),
+                       lambda: inputs)
+diff -ruN frustum-pointnets/scripts/command_prep_data_car.sh ../pseudo_lidar_exp/frustum-pointnets/scripts/command_prep_data_car.sh
+--- frustum-pointnets/scripts/command_prep_data_car.sh	1969-12-31 19:00:00.000000000 -0500
++++ ../pseudo_lidar_exp/frustum-pointnets/scripts/command_prep_data_car.sh	2021-03-15 14:44:58.107634690 -0400
+@@ -0,0 +1,2 @@
++#/bin/bash
++python kitti/prepare_data.py --gen_train --gen_val --gen_val_rgb_detection --lidar_mode $1 --car_only
+diff -ruN frustum-pointnets/scripts/command_prep_data_pedestrian.sh ../pseudo_lidar_exp/frustum-pointnets/scripts/command_prep_data_pedestrian.sh
+--- frustum-pointnets/scripts/command_prep_data_pedestrian.sh	1969-12-31 19:00:00.000000000 -0500
++++ ../pseudo_lidar_exp/frustum-pointnets/scripts/command_prep_data_pedestrian.sh	2021-03-15 14:44:58.111634823 -0400
+@@ -0,0 +1,2 @@
++#/bin/bash
++python kitti/prepare_data.py --gen_train --gen_val --gen_val_rgb_detection --lidar_mode $1 --pedestrian_only
+diff -ruN frustum-pointnets/scripts/command_prep_data.sh ../pseudo_lidar_exp/frustum-pointnets/scripts/command_prep_data.sh
+--- frustum-pointnets/scripts/command_prep_data.sh	2021-03-15 21:18:10.761657155 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/scripts/command_prep_data.sh	1969-12-31 19:00:00.000000000 -0500
+@@ -1,2 +0,0 @@
+-#/bin/bash
+-python kitti/prepare_data.py --gen_train --gen_val --gen_val_rgb_detection
+diff -ruN frustum-pointnets/scripts/command_test_v1.sh ../pseudo_lidar_exp/frustum-pointnets/scripts/command_test_v1.sh
+--- frustum-pointnets/scripts/command_test_v1.sh	2021-03-15 21:18:10.765657289 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/scripts/command_test_v1.sh	1969-12-31 19:00:00.000000000 -0500
+@@ -1,3 +0,0 @@
+-#/bin/bash
+-python train/test.py --gpu 0 --num_point 1024 --model frustum_pointnets_v1 --model_path train/log_v1/model.ckpt --output train/detection_results_v1 --data_path kitti/frustum_carpedcyc_val_rgb_detection.pickle --from_rgb_detection --idx_path kitti/image_sets/val.txt --from_rgb_detection
+-train/kitti_eval/evaluate_object_3d_offline dataset/KITTI/object/training/label_2/ train/detection_results_v1
+diff -ruN frustum-pointnets/scripts/command_test_v2.sh ../pseudo_lidar_exp/frustum-pointnets/scripts/command_test_v2.sh
+--- frustum-pointnets/scripts/command_test_v2.sh	2021-03-15 21:18:10.769657423 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/scripts/command_test_v2.sh	1969-12-31 19:00:00.000000000 -0500
+@@ -1,3 +0,0 @@
+-#/bin/bash
+-python train/test.py --gpu 0 --num_point 1024 --model frustum_pointnets_v2 --model_path train/log_v2/model.ckpt --output train/detection_results_v2 --data_path kitti/frustum_carpedcyc_val_rgb_detection.pickle --from_rgb_detection --idx_path kitti/image_sets/val.txt --from_rgb_detection
+-train/kitti_eval/evaluate_object_3d_offline dataset/KITTI/object/training/label_2/ train/detection_results_v2
+diff -ruN frustum-pointnets/scripts/command_train_v1.sh ../pseudo_lidar_exp/frustum-pointnets/scripts/command_train_v1.sh
+--- frustum-pointnets/scripts/command_train_v1.sh	2021-03-15 21:18:10.769657423 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/scripts/command_train_v1.sh	1969-12-31 19:00:00.000000000 -0500
+@@ -1,2 +0,0 @@
+-#/bin/bash
+-python train/train.py --gpu 0 --model frustum_pointnets_v1 --log_dir train/log_v1 --num_point 1024 --max_epoch 201 --batch_size 32 --decay_step 800000 --decay_rate 0.5
+diff -ruN frustum-pointnets/scripts/command_train_v2.sh ../pseudo_lidar_exp/frustum-pointnets/scripts/command_train_v2.sh
+--- frustum-pointnets/scripts/command_train_v2.sh	2021-03-15 21:18:10.773657557 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/scripts/command_train_v2.sh	1969-12-31 19:00:00.000000000 -0500
+@@ -1,2 +0,0 @@
+-#/bin/bash
+-python train/train.py --gpu 0 --model frustum_pointnets_v2 --log_dir train/log_v2 --num_point 1024 --max_epoch 201 --batch_size 24 --decay_step 800000 --decay_rate 0.5
+diff -ruN frustum-pointnets/train/provider.py ../pseudo_lidar_exp/frustum-pointnets/train/provider.py
+--- frustum-pointnets/train/provider.py	2021-03-15 21:18:11.217672405 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/train/provider.py	2021-03-15 14:45:07.007931555 -0400
+@@ -5,7 +5,7 @@
+ '''
+ from __future__ import print_function
+ 
+-import cPickle as pickle
++import pickle #cPickle as pickle
+ import sys
+ import os
+ import numpy as np
+@@ -99,7 +99,7 @@
+     '''
+     def __init__(self, npoints, split,
+                  random_flip=False, random_shift=False, rotate_to_center=False,
+-                 overwritten_data_path=None, from_rgb_detection=False, one_hot=False):
++                 overwritten_data_path=None, from_rgb_detection=False, one_hot=False, lidar_mode=0, task="car"):
+         '''
+         Input:
+             npoints: int scalar, number of points for frustum point cloud.
+@@ -121,8 +121,16 @@
+         self.rotate_to_center = rotate_to_center
+         self.one_hot = one_hot
+         if overwritten_data_path is None:
+-            overwritten_data_path = os.path.join(ROOT_DIR,
+-                'kitti/frustum_carpedcyc_%s.pickle'%(split))
++            if task == "car":
++                task_name = "caronly"
++            elif task == "pedestrian":
++                task_name = "pedonly"
++            if from_rgb_detection:
++                overwritten_data_path = os.path.join(ROOT_DIR,
++                'kitti/frustum_%s_%s.pickle'%(task_name, (f"lidar-mode_{lidar_mode}_" + split + "_rgb_detection")))
++            else:
++                overwritten_data_path = os.path.join(ROOT_DIR,
++                'kitti/frustum_%s_%s.pickle'%(task_name, (f"lidar-mode_{lidar_mode}_" + split)))
+ 
+         self.from_rgb_detection = from_rgb_detection
+         if from_rgb_detection:
+diff -ruN frustum-pointnets/train/test.py ../pseudo_lidar_exp/frustum-pointnets/train/test.py
+--- frustum-pointnets/train/test.py	2021-03-15 21:18:11.217672405 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/train/test.py	2021-03-15 14:45:07.011931688 -0400
+@@ -12,8 +12,10 @@
+ import argparse
+ import importlib
+ import numpy as np
+-import tensorflow as tf
+-import cPickle as pickle
++#import tensorflow as tf
++import tensorflow.compat.v1 as tf
++tf.disable_v2_behavior() 
++import pickle #cPickle as pickle
+ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ ROOT_DIR = os.path.dirname(BASE_DIR)
+ sys.path.append(BASE_DIR)
+@@ -33,6 +35,8 @@
+ parser.add_argument('--from_rgb_detection', action='store_true', help='test from dataset files from rgb detection.')
+ parser.add_argument('--idx_path', default=None, help='filename of txt where each line is a data idx, used for rgb detection -- write <id>.txt for all frames. [default: None]')
+ parser.add_argument('--dump_result', action='store_true', help='If true, also dump results to .pickle file')
++parser.add_argument('--lidar_mode', type=int, default=0, help='0: lidar; 1: pseudo_lidar, 2: pseudo_lidar_dl')
++parser.add_argument('--task', type=str, default="car", help='car / pedestrian')
+ FLAGS = parser.parse_args()
+ 
+ # Set training configurations
+@@ -47,7 +51,7 @@
+ # Load Frustum Datasets.
+ TEST_DATASET = provider.FrustumDataset(npoints=NUM_POINT, split='val',
+     rotate_to_center=True, overwritten_data_path=FLAGS.data_path,
+-    from_rgb_detection=FLAGS.from_rgb_detection, one_hot=True)
++    from_rgb_detection=FLAGS.from_rgb_detection, one_hot=True, lidar_mode=FLAGS.lidar_mode, task=FLAGS.task)
+ 
+ def get_session_and_ops(batch_size, num_point):
+     ''' Define model graph, load model parameters,
+@@ -100,7 +104,7 @@
+ def inference(sess, ops, pc, one_hot_vec, batch_size):
+     ''' Run inference for frustum pointnets in batch mode '''
+     assert pc.shape[0]%batch_size == 0
+-    num_batches = pc.shape[0]/batch_size
++    num_batches = int(pc.shape[0]/batch_size)
+     logits = np.zeros((pc.shape[0], pc.shape[1], NUM_CLASSES))
+     centers = np.zeros((pc.shape[0], 3))
+     heading_logits = np.zeros((pc.shape[0], NUM_HEADING_BIN))
+@@ -228,12 +232,7 @@
+         batch_one_hot_to_feed[0:cur_batch_size,:] = batch_one_hot_vec
+ 
+         # Run one batch inference
+-	batch_output, batch_center_pred, \
+-        batch_hclass_pred, batch_hres_pred, \
+-        batch_sclass_pred, batch_sres_pred, batch_scores = \
+-            inference(sess, ops, batch_data_to_feed,
+-                batch_one_hot_to_feed, batch_size=batch_size)
+-	
++        batch_output, batch_center_pred, batch_hclass_pred, batch_hres_pred, batch_sclass_pred, batch_sres_pred, batch_scores = inference(sess, ops, batch_data_to_feed, batch_one_hot_to_feed, batch_size=batch_size)
+         for i in range(cur_batch_size):
+             ps_list.append(batch_data[i,...])
+             segp_list.append(batch_output[i,...])
+@@ -307,14 +306,14 @@
+             get_batch(TEST_DATASET, test_idxs, start_idx, end_idx,
+                 NUM_POINT, NUM_CHANNEL)
+ 
+-	batch_output, batch_center_pred, \
++        batch_output, batch_center_pred, \
+         batch_hclass_pred, batch_hres_pred, \
+         batch_sclass_pred, batch_sres_pred, batch_scores = \
+             inference(sess, ops, batch_data,
+                 batch_one_hot_vec, batch_size=batch_size)
+ 
+         correct_cnt += np.sum(batch_output==batch_label)
+-	
++
+         for i in range(batch_output.shape[0]):
+             ps_list.append(batch_data[i,...])
+             seg_list.append(batch_label[i,...])
+@@ -351,6 +350,7 @@
+ 
+ 
+ if __name__=='__main__':
++    print(FLAGS)
+     if FLAGS.from_rgb_detection:
+         test_from_rgb_detection(FLAGS.output+'.pickle', FLAGS.output)
+     else:
+diff -ruN frustum-pointnets/train/train.py ../pseudo_lidar_exp/frustum-pointnets/train/train.py
+--- frustum-pointnets/train/train.py	2021-03-15 21:18:11.221672538 -0400
++++ ../pseudo_lidar_exp/frustum-pointnets/train/train.py	2021-03-15 14:45:07.015931822 -0400
+@@ -10,7 +10,9 @@
+ import argparse
+ import importlib
+ import numpy as np
+-import tensorflow as tf
++#import tensorflow as tf
++import tensorflow.compat.v1 as tf
++tf.disable_v2_behavior()
+ from datetime import datetime
+ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ ROOT_DIR = os.path.dirname(BASE_DIR)
+@@ -22,6 +24,8 @@
+ parser = argparse.ArgumentParser()
+ parser.add_argument('--gpu', type=int, default=0, help='GPU to use [default: GPU 0]')
+ parser.add_argument('--model', default='frustum_pointnets_v1', help='Model name [default: frustum_pointnets_v1]')
++parser.add_argument('--lidar_mode', type=int, default=0, help='0: lidar; 1: pseudo_lidar, 2: pseudo_lidar_dl')
++parser.add_argument('--task', type=str, default="car", help='car / pedestrian')
+ parser.add_argument('--log_dir', default='log', help='Log dir [default: log]')
+ parser.add_argument('--num_point', type=int, default=2048, help='Point Number [default: 2048]')
+ parser.add_argument('--max_epoch', type=int, default=201, help='Epoch to run [default: 201]')
+@@ -65,9 +69,9 @@
+ 
+ # Load Frustum Datasets. Use default data paths.
+ TRAIN_DATASET = provider.FrustumDataset(npoints=NUM_POINT, split='train',
+-    rotate_to_center=True, random_flip=True, random_shift=True, one_hot=True)
++    rotate_to_center=True, random_flip=True, random_shift=True, one_hot=True, lidar_mode=FLAGS.lidar_mode, task=FLAGS.task)
+ TEST_DATASET = provider.FrustumDataset(npoints=NUM_POINT, split='val',
+-    rotate_to_center=True, one_hot=True)
++    rotate_to_center=True, one_hot=True, lidar_mode=FLAGS.lidar_mode, task=FLAGS.task)
+ 
+ def log_string(out_str):
+     LOG_FOUT.write(out_str+'\n')
+@@ -216,7 +220,7 @@
+     # Shuffle train samples
+     train_idxs = np.arange(0, len(TRAIN_DATASET))
+     np.random.shuffle(train_idxs)
+-    num_batches = len(TRAIN_DATASET)/BATCH_SIZE
++    num_batches = int(len(TRAIN_DATASET)/BATCH_SIZE)
+ 
+     # To collect statistics
+     total_correct = 0
+@@ -292,7 +296,7 @@
+     log_string(str(datetime.now()))
+     log_string('---- EPOCH %03d EVALUATION ----'%(EPOCH_CNT))
+     test_idxs = np.arange(0, len(TEST_DATASET))
+-    num_batches = len(TEST_DATASET)/BATCH_SIZE
++    num_batches = int(len(TEST_DATASET)/BATCH_SIZE)
+ 
+     # To collect statistics
+     total_correct = 0
+@@ -372,6 +376,7 @@
+ 
+ 
+ if __name__ == "__main__":
++    print(FLAGS)
+     log_string('pid: %s'%(str(os.getpid())))
+     train()
+     LOG_FOUT.close()
